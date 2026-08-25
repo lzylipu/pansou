@@ -21,8 +21,13 @@ jobs:
       - name: Fetch upstream
         run: git fetch upstream
       - name: Merge upstream main
+        id: merge
         run: git merge upstream/main --no-edit
-      - name: Push
+      - name: Get new commit SHA
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Push ref via API
         env:
           GITHUB_TOKEN: ${{ secrets.PUSH_TOKEN }}
-        run: git push https://x-access-token:${GITHUB_TOKEN}@github.com/lzylipu/pansou.git HEAD:main
+        run: |
+          curl -s -o /dev/null -w "%{http_code}"             -X PUT             -H "Authorization: token $GITHUB_TOKEN"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/lzylipu/pansou/git/refs/heads/main             -d "{\"sha\":\"${{ steps.sha.outputs.sha }}\"}"
