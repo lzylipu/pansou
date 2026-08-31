@@ -1,8 +1,16 @@
+<div align="center">
+
 # 🔍 PanSou 网盘搜索API / Cloud Drive Search API
 
 **⚡ 并发搜索 · 🧩 异步插件 · 🗂️ 类型分类 · 💾 二级缓存 · 🐳 一键 Docker**
 
+[![Go](https://img.shields.io/badge/Go-1.18%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://ghcr.io/fish2018/pansou)
+[![License](https://img.shields.io/github/license/lzylipu/pansou?style=flat-square)](./LICENSE)
+
 **简体中文 | [English](./README_EN.md)**
+
+</div>
 
 ---
 
@@ -573,6 +581,7 @@ curl "http://localhost:8888/api/search?kw=唐朝诡事录&filter=%7B%22include%2
   - `unknown`: 未知来源
 - `images`: TG消息中的图片链接数组（可选）
   - 仅在来源为Telegram频道且消息包含图片时出现
+
 
 **错误响应**：
 

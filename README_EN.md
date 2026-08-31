@@ -1,16 +1,8 @@
-<div align="center">
-
 # 🔍 PanSou — Cloud Drive Search API
 
 **High-performance cloud-drive resource search API with Telegram channels and a pluggable async plugin system.**
 
-[![Go](https://img.shields.io/badge/Go-1.18%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://ghcr.io/fish2018/pansou)
-[![License](https://img.shields.io/github/license/lzylipu/pansou?style=flat-square)](./LICENSE)
-
 **English | [简体中文](./README.md)**
-
-</div>
 
 ---
 
