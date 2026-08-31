@@ -1,6 +1,18 @@
-> 🌐 简体中文 | [**English**](./README_EN.md)
+<div align="center">
 
-# PanSou 网盘搜索API
+# 🔍 PanSou 网盘搜索API / Cloud Drive Search API
+
+**⚡ 并发搜索 · 🧩 异步插件 · 🗂️ 类型分类 · 💾 二级缓存 · 🐳 一键 Docker**
+
+[![Go](https://img.shields.io/badge/Go-1.18%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](https://ghcr.io/fish2018/pansou)
+[![License](https://img.shields.io/github/license/lzylipu/pansou?style=flat-square)](./LICENSE)
+
+**简体中文 | [English](./README_EN.md)**
+
+</div>
+
+---
 
 PanSou是一个高性能的网盘资源搜索API服务，支持TG搜索和自定义插件搜索。系统设计以性能和可扩展性为核心，支持并发搜索、结果智能排序和网盘类型分类。
 
