@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"hash/crc32"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,6 +15,7 @@ import (
 
 	"pansou/model"
 	"pansou/plugin"
+	"pansou/util"
 	jsonutil "pansou/util/json"
 )
 
@@ -197,7 +197,7 @@ func (p *Lou1Plugin) fetchSearchResults(client *http.Client, keyword string) ([]
 		return nil, fmt.Errorf("[%s] 搜索返回状态码: %d", p.Name(), resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := util.ReadAllLimited(resp.Body, util.MaxUpstreamResponseBytes)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 读取搜索响应失败: %w", p.Name(), err)
 	}
@@ -536,6 +536,7 @@ func newHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: requestTimeout,
 		Transport: &http.Transport{
+			Proxy:               util.ProxyFuncForTransport(),
 			MaxIdleConns:        httpMaxIdleConns,
 			MaxIdleConnsPerHost: httpMaxIdlePerHost,
 			MaxConnsPerHost:     httpMaxConnsPerHost,
@@ -554,19 +555,31 @@ func setHTMLHeaders(req *http.Request, referer string) {
 }
 
 func (p *Lou1Plugin) doRequestWithRetry(req *http.Request, client *http.Client, maxRetries int) (*http.Response, error) {
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		resp, err := client.Do(req.Clone(req.Context()))
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return resp, nil
+	var resp *http.Response
+
+	// 重试逻辑收敛到 util.DoWithRetry：这段循环在多个插件里逐字复制过。
+	// 指数退避（retryBaseDelay x 2^attempt）与"最后一次不再等待"的语义保持不变。
+	err := util.DoWithRetry(util.RetryConfig{
+		Attempts:   maxRetries,
+		BaseDelay:  retryBaseDelay,
+		Multiplier: 2,
+	}, func(_ int) error {
+		r, err := client.Do(req.Clone(req.Context()))
+		if err != nil {
+			return err
 		}
-		if resp != nil {
-			resp.Body.Close()
+		if r.StatusCode == http.StatusOK {
+			resp = r
+			return nil
 		}
-		lastErr = err
-		if attempt < maxRetries-1 {
-			time.Sleep(retryBaseDelay * time.Duration(1<<attempt))
-		}
+		status := r.StatusCode
+		r.Body.Close()
+		// Do 成功但状态码非 200：必须把状态码带出来，否则失败原因被清空后
+		// 只会报出 "%!w(<nil>)"，真实状态码丢失、无法定位。
+		return fmt.Errorf("HTTP 状态码 %d", status)
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("重试 %d 次后失败: %w", maxRetries, lastErr)
+	return resp, nil
 }

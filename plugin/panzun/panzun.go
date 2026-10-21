@@ -2,7 +2,6 @@ package panzun
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -12,6 +11,7 @@ import (
 	cloudscraper "github.com/Advik-B/cloudscraper/lib"
 	"pansou/model"
 	"pansou/plugin"
+	"pansou/util"
 	jsonutil "pansou/util/json"
 )
 
@@ -82,6 +82,7 @@ func NewPanzunPlugin() *PanzunPlugin {
 		shortLinkClient: &http.Client{
 			Timeout: defaultTimeout,
 			Transport: &http.Transport{
+				Proxy:               util.ProxyFuncForTransport(),
 				MaxIdleConns:        32,
 				MaxIdleConnsPerHost: 16,
 				IdleConnTimeout:     60 * time.Second,
@@ -135,7 +136,7 @@ func (p *PanzunPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 			return nil, fmt.Errorf("[%s] unexpected status code: %d on page %d", p.Name(), resp.StatusCode, page)
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := util.ReadAllLimited(resp.Body, util.MaxUpstreamResponseBytes)
 		resp.Body.Close()
 		if err != nil {
 			if len(allResults) > 0 {
@@ -281,7 +282,7 @@ func (p *PanzunPlugin) fetchDiscussionLinks(client *http.Client, discussionID st
 		return nil, "", nil, time.Time{}, fmt.Errorf("detail status=%d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := util.ReadAllLimited(resp.Body, util.MaxUpstreamResponseBytes)
 	if err != nil {
 		return nil, "", nil, time.Time{}, err
 	}

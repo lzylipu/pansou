@@ -849,20 +849,18 @@ func (s *CheckService) check115(item model.CheckItem, normalized string, client 
 	}
 
 	if response.State && response.Errno == 0 {
-		if len(response.Data.List) > 0 || response.Data.Count > 0 || response.Data.ShareInfo.SnapID != "" || response.Data.ShareInfo.ShareTitle != "" {
-			return s.buildResult(item, normalized, checkStateOK, false, "链接有效"), nil
-		}
-
 		shareState := response.Data.ShareState
 		if shareState == 0 {
 			shareState = response.Data.ShareInfo.ShareState
 		}
 
-		if shareState == 1 {
-			return s.buildResult(item, normalized, checkStateOK, false, "链接有效"), nil
+		reason := strings.TrimSpace(response.Data.ShareInfo.ForbidReason)
+		if reason == "" && (shareState == 0 || shareState == 1) {
+			if shareState == 1 || len(response.Data.List) > 0 || response.Data.Count > 0 || response.Data.ShareInfo.SnapID != "" || response.Data.ShareInfo.ShareTitle != "" {
+				return s.buildResult(item, normalized, checkStateOK, false, "链接有效"), nil
+			}
 		}
 
-		reason := strings.TrimSpace(response.Data.ShareInfo.ForbidReason)
 		if reason == "" {
 			reason = fmt.Sprintf("链接状态异常(share_state=%d)", shareState)
 		}
@@ -1011,7 +1009,7 @@ func (s *CheckService) doRequest(ctx context.Context, method, targetURL string, 
 	}
 	defer resp.Body.Close()
 
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := util.ReadAllLimited(resp.Body, util.MaxUpstreamResponseBytes)
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
@@ -1205,7 +1203,9 @@ func (s *CheckService) loadPersistentCache(key string) (cachedCheckResult, bool)
 
 	var entry cachedCheckResult
 	var found bool
-	_ = s.cacheDB.View(func(tx *bolt.Tx) error {
+	// 读取失败原先被 _ = 吞掉：表现出来只是"缓存未命中"，看起来一切正常，
+	// 实际上 DB 损坏/关闭时每次检查都会重读失败，却没有任何线索。
+	if err := s.cacheDB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(checkCacheBucketName))
 		if bucket == nil {
 			return nil
@@ -1218,13 +1218,17 @@ func (s *CheckService) loadPersistentCache(key string) (cachedCheckResult, bool)
 
 		decoded, err := decodeCachedCheckEntry(raw)
 		if err != nil {
-			return nil
+			// 之前这里 return nil，把解码失败也变成了"未命中"；改成向上返回，
+			// 让事务把它当作错误交给外层记录——否则损坏的条目会被永久静默忽略。
+			return fmt.Errorf("解码检查缓存条目失败: %w", err)
 		}
 
 		entry = decoded
 		found = true
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("[CHECK] 读取检查缓存失败: %v\n", err)
+	}
 
 	return entry, found
 }
@@ -1387,7 +1391,7 @@ func decompressResponseBody(raw []byte, acceptedEncoding string, contentEncoding
 			return raw, err
 		}
 		defer reader.Close()
-		return io.ReadAll(reader)
+		return util.ReadAllDecompressed(reader, int64(len(raw)))
 	}
 
 	if strings.Contains(encoding, "deflate") {
@@ -1396,7 +1400,7 @@ func decompressResponseBody(raw []byte, acceptedEncoding string, contentEncoding
 			return raw, err
 		}
 		defer reader.Close()
-		return io.ReadAll(reader)
+		return util.ReadAllDecompressed(reader, int64(len(raw)))
 	}
 
 	return raw, nil
@@ -1417,7 +1421,7 @@ func extractAliyunShareID(rawURL string) string {
 }
 
 func extractQuarkShareIDAndPassword(rawURL string) (string, string) {
-	re := regexp.MustCompile(`/s/([A-Za-z0-9]+)`)
+	re := check_serviceRe1
 	matches := re.FindStringSubmatch(rawURL)
 	if len(matches) < 2 {
 		return "", ""
@@ -1479,7 +1483,7 @@ func extractTianyiShareInfo(rawURL string, fallbackPassword string) (string, str
 	}
 
 	password := fallbackPassword
-	re := regexp.MustCompile(`（访问码[：:]\s*([a-zA-Z0-9]+)）`)
+	re := check_serviceRe2
 	matches := re.FindStringSubmatch(rawURL)
 	if len(matches) >= 2 && matches[1] != "" {
 		password = matches[1]
@@ -1516,7 +1520,7 @@ func extract123ShareKey(rawURL string) string {
 }
 
 func extractXunleiShareInfo(rawURL string) (string, string) {
-	re := regexp.MustCompile(`pan\.xunlei\.com/s/([^?/#]+)`)
+	re := check_serviceRe3
 	matches := re.FindStringSubmatch(rawURL)
 	if len(matches) < 2 {
 		return "", ""
@@ -1574,3 +1578,11 @@ func extractMobileShareID(rawURL string) string {
 
 	return ""
 }
+
+// 以下正则原先在函数内临时编译，每次调用都要重新解析模式；
+// 提到包级后只编译一次，匹配行为不变。
+var (
+	check_serviceRe1 = regexp.MustCompile(`/s/([A-Za-z0-9]+)`)
+	check_serviceRe2 = regexp.MustCompile(`（访问码[：:]\s*([a-zA-Z0-9]+)）`)
+	check_serviceRe3 = regexp.MustCompile(`pan\.xunlei\.com/s/([^?/#]+)`)
+)

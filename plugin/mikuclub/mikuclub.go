@@ -2,10 +2,10 @@ package mikuclub
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	utiljson "pansou/util/json"
 	"regexp"
 	"strings"
 	"sync"
@@ -15,6 +15,7 @@ import (
 
 	"pansou/model"
 	"pansou/plugin"
+	"pansou/util"
 )
 
 var (
@@ -107,6 +108,7 @@ func (p *MikuclubPlugin) SearchWithResult(keyword string, ext map[string]interfa
 
 func newHTTPClient() *http.Client {
 	transport := &http.Transport{
+		Proxy:                 util.ProxyFuncForTransport(),
 		MaxIdleConns:          maxIdleConns,
 		MaxIdleConnsPerHost:   maxIdlePerHost,
 		MaxConnsPerHost:       maxConnsPerHost,
@@ -254,7 +256,7 @@ func (p *MikuclubPlugin) fetchCategoryPosts(client *http.Client, keyword, catID 
 	}
 
 	var payload postListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := utiljson.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("[%s] 解析搜索结果失败: %w", p.Name(), err)
 	}
 
@@ -442,24 +444,33 @@ func setCommonHeaders(req *http.Request, referer string) {
 }
 
 func (p *MikuclubPlugin) doRequestWithRetry(req *http.Request, client *http.Client, maxRetries int) (*http.Response, error) {
-	var lastErr error
+	var resp *http.Response
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		resp, err := client.Do(req.Clone(req.Context()))
-		if err == nil && resp.StatusCode == http.StatusOK {
-			return resp, nil
+	// 重试逻辑收敛到 util.DoWithRetry：这段循环在多个插件里逐字复制过。
+	// 指数退避（retryBaseDelay x 2^attempt）与"最后一次不再等待"的语义保持不变。
+	err := util.DoWithRetry(util.RetryConfig{
+		Attempts:   maxRetries,
+		BaseDelay:  retryBaseDelay,
+		Multiplier: 2,
+	}, func(_ int) error {
+		r, err := client.Do(req.Clone(req.Context()))
+		if err != nil {
+			return err
 		}
-		if resp != nil {
-			resp.Body.Close()
+		if r.StatusCode == http.StatusOK {
+			resp = r
+			return nil
 		}
-		lastErr = err
-		if attempt < maxRetries-1 {
-			backoff := retryBaseDelay * time.Duration(1<<attempt)
-			time.Sleep(backoff)
-		}
+		status := r.StatusCode
+		r.Body.Close()
+		// Do 成功但状态码非 200：必须把状态码带出来，否则失败原因被清空后
+		// 只会报出 "%!w(<nil>)"，真实状态码丢失、无法定位。
+		return fmt.Errorf("HTTP 状态码 %d", status)
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("重试 %d 次后失败: %w", maxRetries, lastErr)
+	return resp, nil
 }
 
 func startCacheCleaner() {
