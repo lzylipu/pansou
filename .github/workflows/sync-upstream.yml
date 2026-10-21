@@ -2,7 +2,7 @@ name: Sync Upstream
 
 on:
   schedule:
-    - cron: '30 5 * * 1'
+    - cron: '30 4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,23 +11,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
       - name: Configure git
         run: |
           git config user.name 'github-actions'
           git config user.email 'actions@github.com'
-      - name: Add upstream
+      - name: Add upstream remote
         run: git remote add upstream https://github.com/fish2018/pansou.git || true
       - name: Fetch upstream
-        run: git fetch upstream
-      - name: Merge upstream main
-        id: merge
+        run: git fetch upstream main
+      - name: Merge upstream
         run: git merge upstream/main --no-edit
-      - name: Get new commit SHA
-        id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Push ref via API
+      - name: Push merged commits
         env:
-          GITHUB_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
         run: |
-          curl -s -o /dev/null -w "%{http_code}"             -X PUT             -H "Authorization: token $GITHUB_TOKEN"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/lzylipu/pansou/git/refs/heads/main             -d "{\"sha\":\"${{ steps.sha.outputs.sha }}\"}"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/lzylipu/pansou.git"
+          git push origin HEAD:main
